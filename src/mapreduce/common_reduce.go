@@ -1,5 +1,12 @@
 package mapreduce
 
+import (
+	"os"
+	"fmt"
+	"encoding/json"
+	"sort"
+)
+
 func doReduce(
 	jobName string, // the name of the whole MapReduce job
 	reduceTask int, // which reduce task this is
@@ -44,4 +51,51 @@ func doReduce(
 	//
 	// Your code here (Part I).
 	//
+
+	resultMap := make(map[string][]string)
+
+	var keys []string
+
+	// read all reduce file
+
+	for i:= 0; i < nMap; i++{
+
+		reduceTmpFileName := reduceName(jobName, i, reduceTask)
+		reduceTmpfile, err := os.Open(reduceTmpFileName)
+		if err != nil {
+			fmt.Errorf("doReduce read tmp file error %s", reduceTmpFileName)
+			continue
+		}
+
+		var kv KeyValue
+
+		//Decode reads the next JSON-encoded value from its input and stores it in the value pointed to by v.
+		decode := json.NewDecoder(reduceTmpfile)
+		err = decode.Decode(&kv)
+
+		for err == nil {
+			if _, ok := resultMap[kv.Key]; !ok {
+			    keys = append(keys, kv.Key)
+			}
+			resultMap[kv.Key] = append(resultMap[kv.Key], kv.Value)
+			err = decode.Decode(&kv)
+		}
+
+		sort.Strings(keys)
+
+		out, err := os.Create(outFile)
+		if err != nil {
+			fmt.Errorf("doReduce create output file %s failed", err)
+			return
+		}
+		enc := json.NewEncoder(out)
+		for _, key := range keys {
+			if err = enc.Encode(KeyValue{key, reduceF(key, resultMap[key])}); err != nil {
+				fmt.Errorf("write key: %s to file %s failed", key, outFile)
+			}
+		}
+		out.Close()
+	}
+
+
 }

@@ -2,6 +2,10 @@ package mapreduce
 
 import (
 	"hash/fnv"
+	"io/ioutil"
+	"fmt"
+	"os"
+	"encoding/json"
 )
 
 func doMap(
@@ -53,6 +57,66 @@ func doMap(
 	//
 	// Your code here (Part I).
 	//
+
+	body, err := ioutil.ReadFile(inFile)
+	if err != nil {
+		fmt.Errorf("doMap read file err %s", err)
+		return
+	}
+	resultKv := mapF(inFile ,string(body))
+
+	if len(resultKv) == 0 {
+	    fmt.Println("doMap not need to create tmp file")
+	    return
+	}
+	tmpFiles := make([]*os.File, nReduce)
+	tmpFileEcoder := make([]*json.Encoder, nReduce)
+
+	for i:= 0; i < nReduce; i++ {
+		reduceTmpFileName := reduceName(jobName, mapTask, i)
+		fmt.Println(reduceTmpFileName)
+		stat, err := os.Stat(reduceTmpFileName)
+		if err != nil {
+			if os.IsExist(err) {
+				os.Remove(reduceTmpFileName)
+			}
+		}
+		if stat != nil {
+			if stat.IsDir() {
+				os.RemoveAll(reduceTmpFileName)
+			}
+		}
+		reduceFile, err := os.Create(reduceTmpFileName)
+		if err != nil {
+			fmt.Errorf("doMap create tmp %s file err %s ", reduceTmpFileName, err)
+			return
+		}
+		//tmpFiles := append(tmpFiles, reduceFile)
+		tmpFiles[i] = reduceFile
+		enc := json.NewEncoder(reduceFile)
+		//tmpFileEcoder = append(tmpFileEcoder, enc)
+		tmpFileEcoder[i] = enc
+
+	}
+
+
+	for _, kv := range resultKv {
+
+		hashIndex := ihash(kv.Key) % nReduce
+		if tmpFileEcoder[hashIndex] == nil {
+			fmt.Errorf("doMap tmpFile ecoder index err")
+			continue
+		}
+
+		err := tmpFileEcoder[hashIndex].Encode(&kv)
+		if err != nil {
+			fmt.Errorf("doMap write tmp file %s err %s", tmpFiles[hashIndex].Name(), err)
+		}
+	}
+
+	for _, tmpFile := range tmpFiles {
+	    tmpFile.Close()
+	}
 }
 
 func ihash(s string) int {
